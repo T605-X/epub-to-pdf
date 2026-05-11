@@ -121,7 +121,7 @@ class EpubToPdfConverter:
             book = epub.read_epub(epub_path)
             
             # 创建 PDF
-            doc = SimpleDocTemplate(
+            pdf_doc = SimpleDocTemplate(
                 pdf_path,
                 pagesize=A4,
                 rightMargin=72,
@@ -135,22 +135,22 @@ class EpubToPdfConverter:
             
             # 过滤有效文档
             chapter_docs = []
-            for doc in docs:
-                name = doc.get_name()
+            for chapter_doc in docs:
+                name = chapter_doc.get_name()
                 if any(x in name.lower() for x in ['cover', 'toc', 'juan', 'catalog']):
                     continue
                 if re.match(r'.*\d+\.html?$', name):
-                    chapter_docs.append(doc)
+                    chapter_docs.append(chapter_doc)
             
             total_docs = len(chapter_docs)
             self.log(f"找到 {total_docs} 个章节")
             
-            for idx, doc in enumerate(chapter_docs):
+            for idx, chapter_doc in enumerate(chapter_docs):
                 progress = int((idx / total_docs) * 100) if total_docs > 0 else 0
                 self.log(f"处理中... {progress}%")
                 
                 try:
-                    soup = BeautifulSoup(doc.get_content(), 'html.parser')
+                    soup = BeautifulSoup(chapter_doc.get_content(), 'html.parser')
                     
                     # 移除脚本和样式标签
                     for script in soup(["script", "style"]):
@@ -197,7 +197,7 @@ class EpubToPdfConverter:
                     continue
             
             self.log("正在生成 PDF...")
-            doc.build(story)
+            pdf_doc.build(story)
             self.log("转换完成！")
             return True
             
@@ -258,28 +258,55 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    if 'file' not in request.files:
-        return jsonify({'error': '没有选择文件'}), 400
-    
-    file = request.files['file']
-    if file.filename == '' or not file.filename.endswith('.epub'):
-        return jsonify({'error': '请选择 EPUB 文件'}), 400
-    
-    task_id = str(uuid.uuid4())
-    task = ConversionTask(task_id)
-    tasks[task_id] = task
-    
-    input_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{task_id}_{secure_filename(file.filename)}")
-    file.save(input_path)
-    
-    task.input_path = input_path
-    task.output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{task_id}.pdf")
-    
-    thread = threading.Thread(target=convert_file, args=(task_id,))
-    thread.daemon = True
-    thread.start()
-    
-    return jsonify({'task_id': task_id, 'status': 'processing'})
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': '没有选择文件'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': '请选择文件'}), 400
+        
+        if not file.filename.lower().endswith('.epub'):
+            return jsonify({'error': '只支持 EPUB 格式文件'}), 400
+        
+        # 检查文件大小
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        
+        if file_size == 0:
+            return jsonify({'error': '文件大小为0，请重新选择文件'}), 400
+        
+        if file_size > 50 * 1024 * 1024:  # 限制50MB
+            return jsonify({'error': '文件大小不能超过50MB'}), 400
+        
+        task_id = str(uuid.uuid4())
+        task = ConversionTask(task_id)
+        tasks[task_id] = task
+        
+        # 确保上传目录存在
+        upload_folder = app.config['UPLOAD_FOLDER']
+        os.makedirs(upload_folder, exist_ok=True)
+        
+        input_path = os.path.join(upload_folder, f"{task_id}_{secure_filename(file.filename)}")
+        file.save(input_path)
+        
+        # 验证文件是否保存成功
+        if not os.path.exists(input_path) or os.path.getsize(input_path) == 0:
+            return jsonify({'error': '文件保存失败，请重试'}), 500
+        
+        task.input_path = input_path
+        task.output_path = os.path.join(upload_folder, f"{task_id}.pdf")
+        
+        thread = threading.Thread(target=convert_file, args=(task_id,))
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'task_id': task_id, 'status': 'processing'})
+        
+    except Exception as e:
+        print(f"上传错误: {str(e)}")
+        return jsonify({'error': f'上传失败: {str(e)}'}), 500
 
 
 @app.route('/status/<task_id>')
