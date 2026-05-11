@@ -177,8 +177,9 @@ class EpubToPdfConverter:
             self.log("正在生成 PDF...")
             pdf_doc.build(story)
 
-            self.pdf_bytes = pdf_buffer.getvalue()
-            self.log("转换完成！")
+            pdf_buffer.seek(0)
+            self.pdf_bytes = pdf_buffer.read()
+            self.log(f"转换完成！PDF 大小: {len(self.pdf_bytes)} 字节")
             return True
 
         except Exception as e:
@@ -287,7 +288,7 @@ def download(task_id):
     task = tasks[task_id]
     if task.status != 'completed':
         return jsonify({'error': '转换尚未完成'}), 400
-    if not task.output_bytes:
+    if not task.output_bytes or len(task.output_bytes) < 100:
         return jsonify({'error': 'PDF 文件生成失败'}), 400
     pdf_name = task.original_filename.replace('.epub', '.pdf') if task.original_filename else 'output.pdf'
     return send_file(
