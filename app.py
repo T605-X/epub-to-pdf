@@ -9,7 +9,7 @@ import re
 import io
 import tempfile
 from pathlib import Path
-from flask import Flask, render_template, request, send_file, jsonify
+from flask import Flask, render_template, request, send_file, jsonify, Response
 from werkzeug.utils import secure_filename
 import threading
 
@@ -290,13 +290,18 @@ def download(task_id):
         return jsonify({'error': '转换尚未完成'}), 400
     if not task.output_bytes or len(task.output_bytes) < 100:
         return jsonify({'error': 'PDF 文件生成失败'}), 400
+
     pdf_name = task.original_filename.replace('.epub', '.pdf') if task.original_filename else 'output.pdf'
-    return send_file(
-        io.BytesIO(task.output_bytes),
-        as_attachment=True,
-        download_name=pdf_name,
-        mimetype='application/pdf'
+
+    response = Response(
+        task.output_bytes,
+        mimetype='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment; filename="{pdf_name}"',
+            'Content-Length': str(len(task.output_bytes)),
+        }
     )
+    return response
 
 
 if __name__ == '__main__':
