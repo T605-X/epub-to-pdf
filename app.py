@@ -6,6 +6,7 @@ import os
 import sys
 import uuid
 import re
+import io
 import tempfile
 from pathlib import Path
 from flask import Flask, render_template, request, send_file, jsonify
@@ -41,6 +42,8 @@ class ConversionTask:
         self.message = '等待中...'
         self.input_path = None
         self.output_path = None
+        self.output_bytes = None
+        self.original_filename = None
         self.error = None
 
     def update_progress(self, message):
@@ -57,6 +60,7 @@ class EpubToPdfConverter:
     def __init__(self, progress_callback=None):
         self.progress_callback = progress_callback
         self.styles = None
+        self.pdf_bytes = None
         self.register_fonts()
 
     def register_fonts(self):
@@ -104,8 +108,10 @@ class EpubToPdfConverter:
             self.log("开始读取 EPUB 文件...")
             book = epub.read_epub(epub_path)
 
+            pdf_buffer = io.BytesIO()
+
             pdf_doc = SimpleDocTemplate(
-                pdf_path, pagesize=A4,
+                pdf_buffer, pagesize=A4,
                 rightMargin=72, leftMargin=72,
                 topMargin=72, bottomMargin=72
             )
@@ -170,6 +176,8 @@ class EpubToPdfConverter:
 
             self.log("正在生成 PDF...")
             pdf_doc.build(story)
+
+            self.pdf_bytes = pdf_buffer.getvalue()
             self.log("转换完成！")
             return True
 
@@ -198,12 +206,15 @@ def convert_file(task_id):
         task.status = 'processing'
         converter = EpubToPdfConverter(progress_callback=task.update_progress)
         success = converter.convert(task.input_path, task.output_path)
-        if success:
+
+        if success and hasattr(converter, 'pdf_bytes') and converter.pdf_bytes:
             task.status = 'completed'
             task.progress = 100
+            task.output_bytes = converter.pdf_bytes
         else:
             task.status = 'failed'
-            task.error = '转换失败'
+            task.error = '转换失败：PDF 生成失败'
+
     except Exception as e:
         task.status = 'failed'
         task.error = str(e)
@@ -243,6 +254,7 @@ def upload():
 
         task.input_path = input_path
         task.output_path = os.path.join(OUTPUT_DIR, f"{task_id}.pdf")
+        task.original_filename = file.filename
 
         thread = threading.Thread(target=convert_file, args=(task_id,))
         thread.daemon = True
@@ -275,16 +287,13 @@ def download(task_id):
     task = tasks[task_id]
     if task.status != 'completed':
         return jsonify({'error': '转换尚未完成'}), 400
-    if not os.path.exists(task.output_path):
-        return jsonify({'error': '文件不存在'}), 404
-    original_name = os.path.basename(task.input_path)
-    if '_' in original_name:
-        original_name = original_name.split('_', 1)[1]
-    original_name = original_name.replace('.epub', '.pdf')
+    if not task.output_bytes:
+        return jsonify({'error': 'PDF 文件生成失败'}), 400
+    pdf_name = task.original_filename.replace('.epub', '.pdf') if task.original_filename else 'output.pdf'
     return send_file(
-        task.output_path,
+        io.BytesIO(task.output_bytes),
         as_attachment=True,
-        download_name=original_name,
+        download_name=pdf_name,
         mimetype='application/pdf'
     )
 
