@@ -1,0 +1,6 @@
+flask>=2.0.0
+werkzeug>=2.0.0
+ebooklib>=0.18
+beautifulsoup4>=4.9.0
+reportlab>=3.6.0
+lxml>=4.6.0
