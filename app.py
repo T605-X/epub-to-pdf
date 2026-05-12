@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""EPUB 转 PDF Web 转换器 - 优化版"""
+"""EPUB 转 PDF Web 转换器 - 使用内置字体"""
 
 import os
 import sys
@@ -21,8 +21,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 
 app = Flask(__name__)
@@ -61,47 +59,11 @@ class EpubToPdfConverter:
         self.progress_callback = progress_callback
         self.styles = None
         self.pdf_bytes = None
-        self.register_fonts()
-
-    def register_fonts(self):
-        font_paths = [
-            ("WenQuanYi", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"),
-            ("WenQuanYi", "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"),
-            ("NotoSansCJK", "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
-        ]
-        self.chinese_font_name = "Helvetica"
-        for font_name, font_path in font_paths:
-            if os.path.exists(font_path):
-                try:
-                    pdfmetrics.registerFont(TTFont(font_name, font_path))
-                    self.chinese_font_name = font_name
-                    break
-                except:
-                    continue
+        self.font_name = "Helvetica"
 
     def log(self, message):
         if self.progress_callback:
             self.progress_callback(message)
-
-    def parse_css_style(self, style_str):
-        styles = {}
-        if not style_str:
-            return styles
-        size_match = re.search(r'font-size:\s*(\d+)\s*px', style_str)
-        if size_match:
-            styles['font_size'] = int(size_match.group(1))
-        lh_match = re.search(r'line-height:\s*(\d+\.?\d*)', style_str)
-        if lh_match:
-            styles['line_height'] = float(lh_match.group(1))
-        if 'text-align: center' in style_str:
-            styles['alignment'] = TA_CENTER
-        elif 'text-align: right' in style_str:
-            styles['alignment'] = TA_RIGHT
-        else:
-            styles['alignment'] = TA_LEFT
-        if 'font-weight: bold' in style_str or 'font-weight: 700' in style_str:
-            styles['bold'] = True
-        return styles
 
     def convert(self, epub_path, pdf_path):
         try:
@@ -148,22 +110,14 @@ class EpubToPdfConverter:
                         if not text or len(text) < 2:
                             continue
 
-                        style = elem.get('style', '')
-                        css_styles = self.parse_css_style(style)
-
                         if elem.name == 'h1':
-                            font_size = css_styles.get('font_size', 24)
-                            para = Paragraph(text, self.create_style(font_size, bold=True))
+                            para = Paragraph(text, self.create_style(24, bold=True))
                         elif elem.name == 'h2':
-                            font_size = css_styles.get('font_size', 20)
-                            para = Paragraph(text, self.create_style(font_size, bold=True))
+                            para = Paragraph(text, self.create_style(20, bold=True))
                         elif elem.name in ['h3', 'h4', 'h5', 'h6']:
-                            font_size = css_styles.get('font_size', 16)
-                            para = Paragraph(text, self.create_style(font_size, bold=True))
+                            para = Paragraph(text, self.create_style(16, bold=True))
                         else:
-                            font_size = css_styles.get('font_size', 11)
-                            line_height = css_styles.get('line_height', 1.6)
-                            para = Paragraph(text, self.create_style(font_size, line_height=line_height))
+                            para = Paragraph(text, self.create_style(11))
 
                         story.append(para)
                         story.append(Spacer(1, 6))
@@ -191,7 +145,7 @@ class EpubToPdfConverter:
         leading = font_size * line_height
         return ParagraphStyle(
             name=style_name,
-            fontName=self.chinese_font_name,
+            fontName=self.font_name,
             fontSize=font_size,
             leading=leading,
             alignment=alignment,
